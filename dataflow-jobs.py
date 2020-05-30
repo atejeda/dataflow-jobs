@@ -55,9 +55,11 @@ def dataflow_messages(service_jobs, projectId, location, jobId):
     
         messages.append(response)
 
-        pageToken = response.get('nextPageToken') if 'nextPageToken' in response else None
-        if not pageToken: break
-    
+        
+        pageToken = response.get('nextPageToken')
+        if pageToken:
+            break
+
     return messages
 
 
@@ -103,14 +105,14 @@ def dataflow_job(projectId, location, jobId, page):
     args = (service_jobs, projectId, location, jobId)
     
     functions = {
-        'debug' : dataflow_debug,
-        'messages' : dataflow_messages,
+        'debug'     : dataflow_debug,
+        'messages'  : dataflow_messages,
         'snapshots' : dataflow_snapshots,
-        'workItem' : dataflow_workItems,
-        'metrics' : dataflow_metrics,
-        'details' : dataflow_details,
+        'workItem'  : dataflow_workItems,
+        'metrics'   : dataflow_metrics,
+        'details'   : dataflow_details,
     }
-     
+
     return { k : v(*args) for k,v in functions.items() }
 
 
@@ -141,6 +143,7 @@ def dataflow_jobs_filter(jobs, datefrom, dateto):
     else:
         return False, jobs
 
+
 def dataflow_jobs_write(projectId, location, file, limit=0, datefrom=None, dateto=None):
     pages, pageToken, page_counter = list(), None, 0
 
@@ -149,30 +152,34 @@ def dataflow_jobs_write(projectId, location, file, limit=0, datefrom=None, datet
 
     pages = []
 
-    while True:
-        if limit and page_counter >= limit: break
-        
+    while not (limit and page_counter >= limit):
         page_counter += 1
 
         logging.info('-'*80)
-        logging.info('getting jobs from page (%s) token = \'%s\'', page_counter, pageToken)
+        logging.info('fetching jobs for page (%s) token = \'%s\'',
+                     page_counter, pageToken)
 
-        response = service_jobs.list(projectId=projectId,
-                                     location=location,
-                                     view='JOB_VIEW_ALL',
-                                     pageToken=pageToken).execute()
+        response = service_jobs.list(
+            projectId=projectId,
+            location=location,
+            view='JOB_VIEW_ALL',
+            pageToken=pageToken
+        ).execute()
       
         jobs = response.get('jobs')
         logging.info('received total jobs = %d', len(jobs))
 
         early_stop, jobs = dataflow_jobs_filter(jobs, datefrom, dateto)
         logging.info('received total filtered = %d', len(jobs))
+        logging.info('early stop ? %s', early_stop)
+        
         
         response['jobs'] = jobs
         pages.append(response)
 
         pageToken = response.get('nextPageToken')
-        if pageToken or early_stop: break
+        if pageToken or early_stop:
+            break
    
     logging.info('*'*80)
     logging.info('writing %d result pages', page_counter)
@@ -241,8 +248,10 @@ def index_mode(args):
     datefrom = args.datefrom
     dateto = args.dateto
 
-    dataflow_jobs_write(projectId, location, file, limit, datefrom, dateto)
-    
+    try:
+        dataflow_jobs_write(projectId, location, file, limit, datefrom, dateto)
+    except KeyboardInterrupt:
+        logging.info('interrupted, nothing is saved')
 
 def full_mode(args):
     pass
