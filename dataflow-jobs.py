@@ -11,6 +11,7 @@
 # https://cloud.google.com/dataflow/docs/reference/rest
 # https://developers.google.com/resources/api-libraries/documentation/dataflow/v1b3/python/latest/index.html
 
+import os
 import json
 import socket
 import logging
@@ -20,7 +21,6 @@ import multiprocessing
 import argparse
 
 from dateutil.tz import tzutc
-
 
 import httplib2shim
 httplib2shim.patch()
@@ -114,10 +114,34 @@ def dataflow_job(projectId, location, jobId, page):
     return { k : v(*args) for k,v in functions.items() }
 
 
-def dataflow_jobs_write(projectId, location, filepath, limit=0, datefrom=None, dateto=None):
-    datefrom = dateutil.parser.parse(datefrom).replace(tzinfo=tzutc()) if datefrom else datefrom
-    dateto = dateutil.parser.parse(dateto).replace(tzinfo=tzutc()) if dateto else dateto
+def dataflow_jobs_filter(jobs, datefrom, dateto):
+    if datefrom or dateto:
+        early_stop, filtered_jobs= False, list()
 
+        for job in jobs: 
+            createTime = dateutil.parser.parse(job.get('createTime'))
+
+            if datefrom and dateto:
+                if createTime >= datefrom and createTime <= dateto:
+                    filtered_jobs.append(job)
+
+            elif datefrom:
+                if createTime >= datefrom:
+                    filtered_jobs.append(job)
+            
+            elif dateto:
+                if createTime <= dateto:
+                    filtered_jobs.append(job)
+
+            if createTime < datefrom:
+                early_stop = True
+                break
+                    
+        return early_stop, filtered_jobs
+    else:
+        return False, jobs
+
+def dataflow_jobs_write(projectId, location, file, limit=0, datefrom=None, dateto=None):
     pages, pageToken, page_counter = list(), None, 0
 
     service = build('dataflow', 'v1b3', cache_discovery=False)
@@ -139,38 +163,20 @@ def dataflow_jobs_write(projectId, location, filepath, limit=0, datefrom=None, d
                                      pageToken=pageToken).execute()
       
         jobs = response.get('jobs')
-        filtered_jobs = None
+        logging.info('received total jobs = %d', len(jobs))
+
+        early_stop, jobs = dataflow_jobs_filter(jobs, datefrom, dateto)
+        logging.info('received total filtered = %d', len(jobs))
         
-        if datefrom or dateto:
-            filtered_jobs = list()
-            for job in jobs: 
-                append = True
-                createTime = dateutil.parser.parse(job.get('createTime'))
-
-                if datefrom and dateto:
-                    if createTime >= datefrom and createTime <= dateto:
-                        filtered_jobs.append(job)
-                elif datefrom:
-                    if createTime >= datefrom:
-                        filtered_jobs.append(job)
-                elif dateto:
-                    if createtime <= dateto:
-                        filtered_jobs.append(job)
-        else:
-            filtered_jobs = jobs
-
-        response['jobs'] = filtered_jobs
+        response['jobs'] = jobs
         pages.append(response)
-        
-        logging.info('received total jobs = %d, filtered = %d', len(jobs), len(filtered_jobs))
 
-        pageToken = response.get('nextPageToken') if 'nextPageToken' in response else None
-        
-        if not pageToken: break
+        pageToken = response.get('nextPageToken')
+        if pageToken or early_stop: break
    
     logging.info('*'*80)
-    logging.info('writing %d result pages into %s', page_counter, filename)
-    json.dump(pages, open(filename, 'w'), indent=4)
+    logging.info('writing %d result pages', page_counter)
+    json.dump(pages, file, indent=4)
 
 
 def dataflow_jobs_read(projectId, location):
@@ -186,6 +192,7 @@ def dataflow_jobs_read(projectId, location):
 
         service = build('dataflow', 'v1b3', cache_discovery=False)
         service_jobs = service.projects().locations().jobs()
+        
         response = service_jobs.list(projectId=projectId,
                                      location=location,
                                      view='JOB_VIEW_ALL',
@@ -219,6 +226,26 @@ def dataflow_jobs_read(projectId, location):
 
     return jobs
 
+def string_date(arg0):
+    return dateutil.parser.parse(arg0).replace(tzinfo=tzutc())
+
+def valid_directory(arg0):
+    if os.path.isdir(arg0): return arg0
+    raise argparse.ArgumentTypeError('directory doesn\'t exists')
+
+def index_mode(args):
+    projectId = args.project
+    location = args.location
+    file = args.file
+    limit = args.limit
+    datefrom = args.datefrom
+    dateto = args.dateto
+
+    dataflow_jobs_write(projectId, location, file, limit, datefrom, dateto)
+    
+
+def full_mode(args):
+    pass
 
 if __name__ == '__main__':
     socket.setdefaulttimeout(600)
@@ -237,37 +264,47 @@ if __name__ == '__main__':
 
     # index mode arguments
 
-    index_group = parser.add_argument_group('index mode')
+    subparsers = parser.add_subparsers(help='sub-command help')
 
+    index_group = subparsers.add_parser('index', help='index mode help')
+    index_group.set_defaults(func=index_mode)
+    
     index_group.add_argument('--file',
-                        help='the file to write or read',
+                        help='the file to write write',
+                        type=argparse.FileType('w', encoding='UTF-8'),
                         required=True)
     
-    index_group.add_argument('--limt',
+    index_group.add_argument('--limit',
                         help='limit the result to N pages',
+                        type=int,
                         default=0)
 
-    index_group.add_argument('--from',
-                        help=' from <= job.createTime ',
+    index_group.add_argument('--datefrom',
+                        help='datefrom >= job.createTime',
+                        type=string_date,
                         default=None)
 
-    index_group.add_argument('--to',
-                        help='the file to write or read',
-                        required=True)
+    index_group.add_argument('--dateto',
+                        help='dateto <= job.createTime',
+                        type=string_date,
+                        default=None)
 
     # full mode arguments
 
-    full_group = parser.add_argument_group('full mode')
-
+    full_group = subparsers.add_parser('full', help='full mode help')
+    full_group.set_defaults(func=full_mode)
+    
     full_group.add_argument('--output',
-                        help='where to write the results',
+                        help='the folder path where to write the results',
+                        type=valid_directory,
                         required=True)
 
     full_group.add_argument('--jobs',
                         help='number of concurrent jobs',
-                            default=multiprocessing.cpu_count())
+                        type=int,
+                        default=multiprocessing.cpu_count())
 
     # options
     
     args = parser.parse_args()
-    
+    args.func(args)
