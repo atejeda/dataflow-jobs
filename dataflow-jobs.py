@@ -233,6 +233,7 @@ def dataflow_jobs_read(projectId, location):
 
     return jobs
 
+
 def string_date(arg0):
     return dateutil.parser.parse(arg0).replace(tzinfo=tzutc())
 
@@ -251,8 +252,10 @@ def index_mode(args):
     try:
         dataflow_jobs_write(projectId, location, file, limit, datefrom, dateto)
     except KeyboardInterrupt:
-        logging.info('interrupted, nothing is saved')
-
+        logging.info('interrupted, nothing has been written')
+    except Exception as e:
+        logging.exception('there is an error')
+        
 def full_mode(args):
     pass
 
