@@ -140,9 +140,9 @@ def dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pag
     for page in pages:
         pageId = page.get('page')
 
-        if pagefrom and pagefrom > pageId:
+        if pagefrom and pageId < pagefrom:
             continue
-        elif pageto and pageto < pageId:
+        elif pageto and  pageId > pageto:
             break
         
         jobs = page.get('jobs')
@@ -177,21 +177,7 @@ def dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pag
         )
         logging.info('writing failed pages into %s', filepath)
         json.dump(failed, open(filepath, 'w'))
-        
-    if len(files) > 1:
-        logging.info('trying to write amalgamate all the results files in one')
-        try:
-            filepath = '{}{}{}_dataflow.full.json'.format(
-                output, os.path.sep, projectId
-            )
-            # inneficient as hell, but works !
-            json.dump(
-                [json.load(open(f)) for f in files], open(filepath, 'w')
-            )
-            logging.info('file written in %s', filepath)
-        except:
-            logging.exception('was\'t possible but results are kept')
-
+   
 
 def dataflow_jobs_write(projectId, location, file, limit=0, datefrom=None, dateto=None):
     pages, pageToken, page_counter = list(), None, 0
