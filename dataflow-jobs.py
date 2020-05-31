@@ -126,8 +126,9 @@ def dataflow_job(projectId, location, job, page):
     responses['jobId'] = jobId
 
     return responses
-    
-def dataflow_jobs_read(projectId, location, file, output, workers):
+
+
+def dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pageto):
     logging.info('worker pool set to %d ', workers)
     
     pages = json.load(file)
@@ -138,8 +139,14 @@ def dataflow_jobs_read(projectId, location, file, output, workers):
     
     for page in pages:
         pageId = page.get('page')
-        jobs = page.get('jobs')
+
+        if pagefrom and pagefrom > pageId:
+            continue
+        elif pageto and pageto < pageId:
+            break
         
+        jobs = page.get('jobs')
+
         logging.debug('processing page = %d', pageId)
 
         try:
@@ -172,7 +179,6 @@ def dataflow_jobs_read(projectId, location, file, output, workers):
         json.dump(failed, open(filepath, 'w'))
         
     if len(files) > 1:
-    
         logging.info('trying to write amalgamate all the results files in one')
         try:
             filepath = '{}{}{}_dataflow.full.json'.format(
@@ -283,8 +289,10 @@ def full_mode(args):
     file = args.file
     output = args.output
     workers = args.workers
+    pagefrom = args.pagefrom
+    pageto = args.pageto
 
-    dataflow_jobs_read(projectId, location, file, output, workers)
+    dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pageto)
 
 
 if __name__ == '__main__':
@@ -344,11 +352,20 @@ if __name__ == '__main__':
                         type=int,
                         default=multiprocessing.cpu_count() - 1)
 
+    full_group.add_argument('--pagefrom',
+                        help='from the page index',
+                        type=int,
+                        default=0)
+
+    full_group.add_argument('--pageto',
+                        help='to the page index',
+                        type=int,
+                        default=0)
+    
     full_group.add_argument('--file',
                         help='file to read which jobs to retrive the info',
                         type=argparse.FileType('r', encoding='UTF-8'),
                         required=True)
-    
     
     # options
     
