@@ -128,7 +128,8 @@ def dataflow_job(projectId, location, job, page):
     return responses
 
 
-def dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pageto):
+def dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pageto, besteffort):
+
     logging.info('worker pool set to %d ', workers)
     
     pages = json.load(file)
@@ -157,8 +158,27 @@ def dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pag
                     dataflow_job, projectId, location, job, pageId
                 ) : job for job in jobs }
                 
-                responses = [future.result() for future in concurrent.futures.as_completed(futures)]
+                responses = list()
+                responses_failed = list()
+                
+                for future in concurrent.futures.as_completed(futures):
+                    if besteffort:
+                        try:
+                            responses.append(future.result())
+                        except Exception as e:
+                            job = futures.get(future)
+                            responses_failed.append(job)
+                            logging.error('failed %s %s', job.get('id'), e)
+                            # the way it is done is wrong, but who cares
+                    else:
+                        responses.append(future.result())
 
+                if responses_failed:
+                    # store failed jobs as the jobs in the page
+                    # and append the page to the failed ones
+                    page['jobs'] = responses_failed
+                    failed.append(page)
+                
                 filepath = '{}{}{}_dataflow.{}.json'.format(
                     output, os.path.sep, projectId, f'{pageId}'.zfill(3)
                 )
@@ -266,7 +286,9 @@ def index_mode(args):
     datefrom = args.datefrom
     dateto = args.dateto
 
-    dataflow_jobs_write(projectId, location, file, limit, datefrom, dateto)
+    dataflow_jobs_write(
+        projectId, location, file, limit, datefrom, dateto
+    )
 
     
 def full_mode(args):
@@ -277,8 +299,11 @@ def full_mode(args):
     workers = args.workers
     pagefrom = args.pagefrom
     pageto = args.pageto
+    besteffort = args.besteffort
 
-    dataflow_jobs_read(projectId, location, file, output, workers, pagefrom, pageto)
+    dataflow_jobs_read(
+        projectId, location, file, output, workers, pagefrom, pageto, besteffort
+    )
 
 
 if __name__ == '__main__':
@@ -352,6 +377,11 @@ if __name__ == '__main__':
                         help='file to read which jobs to retrive the info',
                         type=argparse.FileType('r', encoding='UTF-8'),
                         required=True)
+
+    full_group.add_argument('--besteffort',
+                        help='skip failures when retreiving jobs',
+                        action='store_true',
+                        default=False)
     
     # options
     
