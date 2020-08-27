@@ -389,7 +389,9 @@ if __name__ == '__main__':
 
     try:
         args.func(args)
+    except AttributeError:
+        logging.error("define mode, index or full")
     except KeyboardInterrupt:
-        logging.info('interrupted, nothing has been written')
+        logging.error('interrupted, nothing has been written')
     except Exception as e:
         logging.exception('there is an error')
